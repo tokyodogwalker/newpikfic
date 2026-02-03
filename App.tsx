@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AppState, Story, IdolGroup, IdolMember, Theme } from './types';
 import { EPISODE_OPTIONS } from './constants'; 
 import { generateEpisode } from './services/geminiService';
-import { supabase } from './src/lib/supabase'; 
+import { supabase } from './src/lib/supabase'; // 경로 확인 필수 (@/src/lib/supabase 등)
 import { ChevronLeft, ChevronRight, Save, Trash2, Loader2, X, Plus, MessageSquare, User, ArrowUp, Globe } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -16,16 +16,20 @@ const App: React.FC = () => {
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollAnchorRef = useRef<HTMLDivElement>(null);
 
+  // DB 데이터 상태
   const [kpopGroups, setKpopGroups] = useState<IdolGroup[]>([]);
 
+  // Setup state
   const [leftGroup, setLeftGroup] = useState<IdolGroup | null>(null);
   const [leftMember, setLeftMember] = useState<IdolMember | null>(null);
   const [rightGroup, setRightGroup] = useState<IdolGroup | null>(null);
   const [rightMember, setRightMember] = useState<IdolMember | null>(null);
   
+  // Nafes state
   const [isNafes, setIsNafes] = useState(false);
   const [nafesName, setNafesName] = useState('여주');
 
+  // Extra members state
   const [extraMembers, setExtraMembers] = useState<{group: IdolGroup, member: IdolMember}[]>([]);
   const [isAddingExtra, setIsAddingExtra] = useState(false);
   const [tempExtraGroup, setTempExtraGroup] = useState<IdolGroup | null>(null);
@@ -34,7 +38,10 @@ const App: React.FC = () => {
   const [episodeLimit, setEpisodeLimit] = useState(10);
   const [customInput, setCustomInput] = useState('');
 
-  // 1. DB 데이터 페칭 및 타입 오류 해결
+  // 등장인물 추가 최대 제한
+  const maxExtraLimit = 8;
+
+  // 1. DB 데이터 페칭 (아이돌 정보)
   useEffect(() => {
     const fetchIdolData = async () => {
       const { data, error } = await supabase
@@ -61,10 +68,10 @@ const App: React.FC = () => {
       if (data) {
         const formatted: IdolGroup[] = data.map((g: any) => ({
           id: g.id,
-          group_name: g.group_name,       // 필수 속성 추가
-          group_name_en: g.group_name_en, // 필수 속성 추가
+          group_name: g.group_name,
+          group_name_en: g.group_name_en,
           group_context: g.group_context,
-          name: language === 'kr' ? g.group_name : g.group_name_en, // UI용 name 유지
+          name: language === 'kr' ? g.group_name : g.group_name_en,
           members: g.idol_members.map((m: any) => ({
             id: m.id,
             name: language === 'kr' ? m.name_kr : m.name_en,
@@ -102,9 +109,309 @@ const App: React.FC = () => {
     localStorage.setItem('pikfic_stories', JSON.stringify(updated));
   };
 
+  const handleStartStory = async () => {
+    const rightCharName = isNafes ? nafesName : rightMember?.name;
+    if (!leftMember || !rightCharName || !themeInput) return;
+
+    setLoading(true);
+    try {
+      const initialStory: Story = {
+        id: Date.now().toString(),
+        title: `[${leftMember.name} X ${rightCharName}] 연재 중...`,
+        groupName: Array.from(new Set([
+          leftGroup?.name, 
+          !isNafes ? rightGroup?.name : null, 
+          ...extraMembers.map(em => em.group.name)
+        ])).filter(Boolean).join(', '),
+        leftMember: leftMember.name,
+        rightMember: rightCharName,
+        isNafes,
+        nafesName: isNafes ? nafesName : undefined,
+        theme: themeInput,
+        totalEpisodes: episodeLimit,
+        episodes: [],
+        isCompleted: false,
+        createdAt: Date.now(),
+        leftMemberContext: leftMember.personality,
+        rightMemberContext: !isNafes ? rightMember?.personality : undefined,
+        language // 다국어 정보 전달
+      };
+
+      const firstEp = await generateEpisode(initialStory, themeInput, 1);
+      
+      const newStory: Story = {
+        ...initialStory,
+        title: firstEp.storyTitle || initialStory.title,
+        episodes: [{
+          episodeNumber: 1,
+          content: firstEp.content,
+          suggestions: firstEp.suggestions,
+        }]
+      };
+      
+      setCurrentStory(newStory);
+      setView(AppState.WRITING);
+    } catch (e) {
+      alert("집필 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNextEpisode = async (choice: string) => {
+    if (!currentStory) return;
+    setLoading(true);
+    try {
+      const nextEpNum = currentStory.episodes.length + 1;
+      const nextEp = await generateEpisode(currentStory, choice, nextEpNum);
+      const updatedStory = {
+        ...currentStory,
+        episodes: [...currentStory.episodes, {
+          episodeNumber: nextEpNum,
+          content: nextEp.content,
+          suggestions: nextEp.suggestions,
+          userChoice: choice,
+        }],
+        isCompleted: nextEpNum >= currentStory.totalEpisodes
+      };
+      setCurrentStory(updatedStory);
+      setCustomInput('');
+      setTimeout(() => {
+        scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    } catch (e) {
+      alert("다음 회차 생성에 실패했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveToLibrary = () => {
+    if (!currentStory) return;
+    const currentStories = JSON.parse(localStorage.getItem('pikfic_stories') || '[]');
+    const existingIdx = currentStories.findIndex((s: Story) => s.id === currentStory.id);
+    let updated;
+    if (existingIdx >= 0) {
+      updated = [...currentStories];
+      updated[existingIdx] = currentStory;
+    } else {
+      updated = [currentStory, ...currentStories];
+    }
+    saveStories(updated);
+    alert("서재에 안전하게 저장되었습니다.");
+  };
+
+  const deleteFromLibrary = (id: string) => {
+    if (confirm("이 기록을 삭제하시겠습니까?")) {
+      saveStories(stories.filter(s => s.id !== id));
+    }
+  };
+
+  const addExtraMember = (member: IdolMember) => {
+    if (tempExtraGroup && extraMembers.length < maxExtraLimit) {
+      setExtraMembers([...extraMembers, { group: tempExtraGroup, member }]);
+      setIsAddingExtra(false);
+      setTempExtraGroup(null);
+    }
+  };
+
+  const removeExtraMember = (idx: number) => {
+    setExtraMembers(extraMembers.filter((_, i) => i !== idx));
+  };
+
+  const scrollToTop = () => {
+    contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const themeClasses = theme === 'dark' ? 'bg-zinc-950 text-zinc-100' : 'bg-white text-black';
+  const borderClasses = theme === 'dark' ? 'border-zinc-800' : 'border-black';
+  const buttonActiveClasses = theme === 'dark' ? 'bg-zinc-100 text-zinc-950' : 'bg-black text-white';
+  const buttonHoverClasses = theme === 'dark' ? 'hover:bg-zinc-900' : 'hover:bg-gray-100';
+
   // ---------------------------------------------------------
-  // UI 렌더링 함수들을 handleStartStory 바깥(App 스코프)으로 이동
+  // UI Renderers
   // ---------------------------------------------------------
+
+  const renderSetup = () => (
+    <div className={`max-w-4xl mx-auto p-6 space-y-12 animate-in fade-in duration-700 pb-24 relative ${themeClasses}`}>
+      {/* 우측 상단 다국어 아이콘 */}
+      <div className="absolute top-4 right-4 md:top-8 md:right-8 z-50">
+        <button 
+          onClick={() => setLanguage(language === 'kr' ? 'en' : 'kr')}
+          className={`p-3 border ${borderClasses} rounded-full transition-all ${buttonHoverClasses} flex items-center gap-2 shadow-sm`}
+          title="Change Language"
+        >
+          <Globe size={18} />
+          <span className="text-[10px] font-bold uppercase">{language === 'kr' ? 'KR' : 'EN'}</span>
+        </button>
+      </div>
+
+      <header className="text-center pt-8">
+        <img src="/pikficlogo.png" alt="PIKFIC Logo" className="mx-auto w-full max-w-[250px] h-auto mb-4" />
+        <div className="space-y-1 opacity-70">
+          <p className="font-bold uppercase tracking-[0.2em] text-[10px]">마이너도 크오도 성실하게 글 써드립니다🤓☝️</p>
+          <p className="font-bold uppercase tracking-[0.2em] text-[10px]">🔧TEST중🔧 사용하다가 불편한 점 스핀이나 디엠주세요.</p>
+          <p className="font-bold uppercase tracking-[0.2em] text-[10px]">무료토큰 다 쓰면 집필 실패 떠요ㄷㄷ 기다렸다가 나중에ㄱㄱ</p>
+        </div>
+      </header>
+
+      <section className={`space-y-10 border-t ${borderClasses} pt-10`}>
+        {/* Step 01: 왼쪽 멤버 */}
+        <div className="space-y-6">
+          <div className="flex items-center gap-2">
+            <span className={`w-8 h-8 rounded-full border ${borderClasses} flex items-center justify-center text-xs font-bold`}>01</span>
+            <h2 className="text-sm font-bold uppercase tracking-widest">{language === 'kr' ? '왼쪽 멤버' : 'LEFT MEMBER'}👈</h2>
+          </div>
+          <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-1">
+            {kpopGroups.map(group => (
+              <button
+                key={`lg-${group.id}`}
+                onClick={() => { setLeftGroup(group); setLeftMember(null); }}
+                className={`p-2 text-[10px] font-bold border ${borderClasses} transition-all ${leftGroup?.id === group.id ? buttonActiveClasses : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}
+              >
+                {group.name}
+              </button>
+            ))}
+          </div>
+          {leftGroup && (
+            <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-8 gap-1 animate-in slide-in-from-top-2">
+              {leftGroup.members.map(member => (
+                <button
+                  key={`lm-${member.id}`}
+                  onClick={() => setLeftMember(member)}
+                  className={`p-3 text-xs border ${borderClasses} transition-all ${leftMember?.id === member.id ? `${buttonActiveClasses} font-bold` : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}
+                >
+                  {member.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Step 02: 오른쪽 멤버 + 저요저요 */}
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className={`w-8 h-8 rounded-full border ${borderClasses} flex items-center justify-center text-xs font-bold`}>02</span>
+              <h2 className="text-sm font-bold uppercase tracking-widest">{language === 'kr' ? '오른쪽 멤버' : 'RIGHT MEMBER'}👉</h2>
+            </div>
+            <button 
+              onClick={() => setIsNafes(!isNafes)} 
+              className={`flex items-center gap-2 px-4 py-2 border ${borderClasses} rounded-full text-[10px] font-bold transition-all ${isNafes ? buttonActiveClasses : buttonHoverClasses}`}
+            >
+              🙋‍♀️ {language === 'kr' ? '저요저요' : 'NAFES'} {isNafes ? 'ON' : 'OFF'}
+            </button>
+          </div>
+          
+          {isNafes ? (
+            <div className="animate-in slide-in-from-top-2 space-y-4">
+               <div className={`p-6 border border-dashed ${borderClasses} rounded-8 bg-transparent`}>
+                <p className="text-[10px] font-bold mb-3 opacity-60 uppercase tracking-widest">이름 또는 애칭, 글에 녹이고 싶은 특징들을 적어주세요</p>
+                <input 
+                  type="text" 
+                  value={nafesName} 
+                  onChange={(e) => setNafesName(e.target.value)} 
+                  placeholder="예: 여주, 이름" 
+                  className={`w-full p-4 border ${borderClasses} rounded-8 text-sm focus:outline-none bg-transparent`} 
+                />
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-1">
+                {kpopGroups.map(group => (
+                  <button key={`rg-${group.id}`} onClick={() => { setRightGroup(group); setRightMember(null); }} className={`p-2 text-[10px] font-bold border ${borderClasses} transition-all ${rightGroup?.id === group.id ? buttonActiveClasses : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}>
+                    {group.name}
+                  </button>
+                ))}
+              </div>
+              {rightGroup && (
+                <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-8 gap-1 animate-in slide-in-from-top-2">
+                  {rightGroup.members.map(member => (
+                    <button key={`rm-${member.id}`} onClick={() => setRightMember(member)} className={`p-3 text-xs border ${borderClasses} transition-all ${rightMember?.id === member.id ? `${buttonActiveClasses} font-bold` : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}>
+                      {member.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* 등장인물 추가 (Extra Members) */}
+          <div className="pt-2">
+            <div className="flex flex-wrap items-center gap-2 min-h-[40px]">
+              {extraMembers.map((em, idx) => (
+                <div key={idx} className={`flex items-center gap-2 border ${borderClasses} px-3 py-1.5 text-xs font-bold rounded-full ${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} group animate-in zoom-in-90`}>
+                  <span className="text-[9px] opacity-40 uppercase tracking-tighter">{em.group.name}</span>
+                  {em.member.name}
+                  <button onClick={() => removeExtraMember(idx)} className="text-gray-300 hover:text-red-500 transition-colors">
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+              {extraMembers.length < maxExtraLimit && (
+                <button 
+                  onClick={() => setIsAddingExtra(!isAddingExtra)}
+                  className={`w-9 h-9 rounded-full border ${borderClasses} border-dashed flex items-center justify-center transition-all ${isAddingExtra ? buttonActiveClasses + ' rotate-45' : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}
+                >
+                  <Plus size={18} />
+                </button>
+              )}
+              <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest ml-2">등장인물 추가 ({extraMembers.length}/{maxExtraLimit})</span>
+            </div>
+            {isAddingExtra && (
+              <div className={`mt-4 p-5 border ${borderClasses} border-dashed rounded-8 space-y-4 animate-in slide-in-from-top-4 ${theme === 'dark' ? 'bg-zinc-900/30' : 'bg-white'}`}>
+                <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-1">
+                  {kpopGroups.map(group => (
+                    <button key={`eg-${group.id}`} onClick={() => setTempExtraGroup(group)} className={`p-2 text-[10px] font-bold border ${borderClasses} transition-all ${tempExtraGroup?.id === group.id ? buttonActiveClasses : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}>
+                      {group.name}
+                    </button>
+                  ))}
+                </div>
+                {tempExtraGroup && (
+                  <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-8 gap-1 animate-in slide-in-from-top-2">
+                    {tempExtraGroup.members.map(member => (
+                      <button key={`em-${member.id}`} onClick={() => addExtraMember(member)} className={`p-3 text-xs border ${borderClasses} transition-all font-medium ${theme === 'dark' ? 'bg-zinc-800' : 'bg-white'} ${buttonHoverClasses}`}>
+                        {member.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Step 03 & 04 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <span className={`w-8 h-8 rounded-full border ${borderClasses} flex items-center justify-center text-xs font-bold`}>03</span>
+              <h2 className="text-sm font-bold uppercase tracking-widest">{language === 'kr' ? '주제 및 소재' : 'THEME & CONCEPT'}</h2>
+            </div>
+            <textarea placeholder="이야기의 전체적인 분위기, 소재, 시작점을 적어주세요..." className={`w-full h-32 border ${borderClasses} rounded-8 p-4 text-sm focus:outline-none placeholder:text-gray-300 bg-transparent`} value={themeInput} onChange={(e) => setThemeInput(e.target.value)} />
+          </div>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <span className={`w-8 h-8 rounded-full border ${borderClasses} flex items-center justify-center text-xs font-bold`}>04</span>
+              <h2 className="text-sm font-bold uppercase tracking-widest">{language === 'kr' ? '연재 분량' : 'LENGTH'}</h2>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {EPISODE_OPTIONS.map(opt => (
+                <button key={opt} onClick={() => setEpisodeLimit(opt)} className={`py-3 text-xs font-bold border ${borderClasses} rounded-8 transition-all ${episodeLimit === opt ? buttonActiveClasses : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}>
+                  {opt} {language === 'kr' ? '회 분량' : 'EPISODES'}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <button onClick={handleStartStory} disabled={!leftMember || (!isNafes && !rightMember) || !themeInput || loading} className={`w-full py-5 border ${borderClasses} ${buttonActiveClasses} font-black text-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-3 rounded-8`}>
+          {loading ? <Loader2 className="animate-spin" /> : null}
+          {language === 'kr' ? '연재 시작하기' : 'START WRITING'}
+        </button>
+      </section>
+    </div>
+  );
 
   const renderWriting = () => {
     if (!currentStory) return null;
@@ -229,273 +536,19 @@ const App: React.FC = () => {
     </div>
   );
 
-  // ---------------------------------------------------------
-  // 비즈니스 로직 함수들
-  // ---------------------------------------------------------
-
-  const handleStartStory = async () => {
-    const rightCharName = isNafes ? nafesName : rightMember?.name;
-    if (!leftMember || !rightCharName || !themeInput) return;
-
-    setLoading(true);
-    try {
-      const initialStory: Story = {
-        id: Date.now().toString(),
-        title: `[${leftMember.name} X ${rightCharName}] 연재 중...`,
-        groupName: Array.from(new Set([
-          leftGroup?.name, 
-          !isNafes ? rightGroup?.name : null, 
-          ...extraMembers.map(em => em.group.name)
-        ])).filter(Boolean).join(', '),
-        leftMember: leftMember.name,
-        rightMember: rightCharName,
-        isNafes,
-        nafesName: isNafes ? nafesName : undefined,
-        theme: themeInput,
-        totalEpisodes: episodeLimit,
-        episodes: [],
-        isCompleted: false,
-        createdAt: Date.now(),
-        leftMemberContext: leftMember.personality,
-        rightMemberContext: !isNafes ? rightMember?.personality : undefined
-      };
-
-      const firstEp = await generateEpisode(initialStory, themeInput, 1);
-      
-      const newStory: Story = {
-        ...initialStory,
-        title: firstEp.storyTitle || initialStory.title,
-        episodes: [{
-          episodeNumber: 1,
-          content: firstEp.content,
-          suggestions: firstEp.suggestions,
-        }]
-      };
-      
-      setCurrentStory(newStory);
-      setView(AppState.WRITING);
-    } catch (e) {
-      alert("집필 중 오류가 발생했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleNextEpisode = async (choice: string) => {
-    if (!currentStory) return;
-    setLoading(true);
-    try {
-      const nextEpNum = currentStory.episodes.length + 1;
-      const nextEp = await generateEpisode(currentStory, choice, nextEpNum);
-      const updatedStory = {
-        ...currentStory,
-        episodes: [...currentStory.episodes, {
-          episodeNumber: nextEpNum,
-          content: nextEp.content,
-          suggestions: nextEp.suggestions,
-          userChoice: choice,
-        }],
-        isCompleted: nextEpNum >= currentStory.totalEpisodes
-      };
-      setCurrentStory(updatedStory);
-      setCustomInput('');
-      setTimeout(() => {
-        scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
-    } catch (e) {
-      alert("다음 회차 생성에 실패했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const saveToLibrary = () => {
-    if (!currentStory) return;
-    const currentStories = JSON.parse(localStorage.getItem('pikfic_stories') || '[]');
-    const existingIdx = currentStories.findIndex((s: Story) => s.id === currentStory.id);
-    let updated;
-    if (existingIdx >= 0) {
-      updated = [...currentStories];
-      updated[existingIdx] = currentStory;
-    } else {
-      updated = [currentStory, ...currentStories];
-    }
-    saveStories(updated);
-    alert("서재에 안전하게 저장되었습니다.");
-  };
-
-  const deleteFromLibrary = (id: string) => {
-    if (confirm("이 기록을 삭제하시겠습니까?")) {
-      saveStories(stories.filter(s => s.id !== id));
-    }
-  };
-
-  const addExtraMember = (member: IdolMember) => {
-    if (tempExtraGroup && extraMembers.length < 8) {
-      setExtraMembers([...extraMembers, { group: tempExtraGroup, member }]);
-      setIsAddingExtra(false);
-      setTempExtraGroup(null);
-    }
-  };
-
-  const removeExtraMember = (idx: number) => {
-    setExtraMembers(extraMembers.filter((_, i) => i !== idx));
-  };
-
-  const scrollToTop = () => {
-    contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const themeClasses = theme === 'dark' ? 'bg-zinc-950 text-zinc-100' : 'bg-white text-black';
-  const borderClasses = theme === 'dark' ? 'border-zinc-800' : 'border-black';
-  const buttonActiveClasses = theme === 'dark' ? 'bg-zinc-100 text-zinc-950' : 'bg-black text-white';
-  const buttonHoverClasses = theme === 'dark' ? 'hover:bg-zinc-900' : 'hover:bg-gray-100';
-
-  const renderSetup = () => (
-    <div className={`max-w-4xl mx-auto p-6 space-y-12 animate-in fade-in duration-700 pb-24 ${themeClasses}`}>
-      <header className="text-center pt-8">
-        <img src="/pikficlogo.png" alt="PIKFIC Logo" className="mx-auto w-full max-w-[250px] h-auto mb-4" />
-        <div className="flex justify-center gap-4 mb-4">
-           <button onClick={() => setLanguage('kr')} className={`text-[10px] font-bold ${language === 'kr' ? 'underline' : 'opacity-40'}`}>KOREAN</button>
-           <button onClick={() => setLanguage('en')} className={`text-[10px] font-bold ${language === 'en' ? 'underline' : 'opacity-40'}`}>ENGLISH</button>
-        </div>
-      </header>
-
-      <section className={`space-y-10 border-t ${borderClasses} pt-10`}>
-        <div className="space-y-6">
-          <div className="flex items-center gap-2">
-            <span className={`w-8 h-8 rounded-full border ${borderClasses} flex items-center justify-center text-xs font-bold`}>01</span>
-            <h2 className="text-sm font-bold uppercase tracking-widest">{language === 'kr' ? '왼쪽 멤버' : 'LEFT MEMBER'}👈</h2>
-          </div>
-          <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-1">
-            {kpopGroups.map(group => (
-              <button
-                key={`lg-${group.id}`}
-                onClick={() => { setLeftGroup(group); setLeftMember(null); }}
-                className={`p-2 text-[10px] font-bold border ${borderClasses} transition-all ${leftGroup?.id === group.id ? buttonActiveClasses : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}
-              >
-                {group.name}
-              </button>
-            ))}
-          </div>
-          {leftGroup && (
-            <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-8 gap-1 animate-in slide-in-from-top-2">
-              {leftGroup.members.map(member => (
-                <button
-                  key={`lm-${member.id}`}
-                  onClick={() => setLeftMember(member)}
-                  className={`p-3 text-xs border ${borderClasses} transition-all ${leftMember?.id === member.id ? `${buttonActiveClasses} font-bold` : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}
-                >
-                  {member.name}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className={`w-8 h-8 rounded-full border ${borderClasses} flex items-center justify-center text-xs font-bold`}>02</span>
-              <h2 className="text-sm font-bold uppercase tracking-widest">{language === 'kr' ? '오른쪽 멤버' : 'RIGHT MEMBER'}👉</h2>
-            </div>
-            <button onClick={() => setIsNafes(!isNafes)} className={`flex items-center gap-2 px-4 py-2 border ${borderClasses} rounded-full text-[10px] font-bold transition-all ${isNafes ? buttonActiveClasses : buttonHoverClasses}`}>
-              {isNafes ? 'NAFES ON' : 'NAFES OFF'}
-            </button>
-          </div>
-          
-          {isNafes ? (
-            <div className="animate-in slide-in-from-top-2 space-y-4">
-              <input type="text" value={nafesName} onChange={(e) => setNafesName(e.target.value)} placeholder="Name (e.g., Y/N)" className={`w-full p-4 border ${borderClasses} rounded-8 text-sm focus:outline-none bg-transparent`} />
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-1">
-                {kpopGroups.map(group => (
-                  <button key={`rg-${group.id}`} onClick={() => { setRightGroup(group); setRightMember(null); }} className={`p-2 text-[10px] font-bold border ${borderClasses} transition-all ${rightGroup?.id === group.id ? buttonActiveClasses : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}>
-                    {group.name}
-                  </button>
-                ))}
-              </div>
-              {rightGroup && (
-                <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-8 gap-1 animate-in slide-in-from-top-2">
-                  {rightGroup.members.map(member => (
-                    <button key={`rm-${member.id}`} onClick={() => setRightMember(member)} className={`p-3 text-xs border ${borderClasses} transition-all ${rightMember?.id === member.id ? `${buttonActiveClasses} font-bold` : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}>
-                      {member.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
-          <div className="pt-2">
-            <div className="flex flex-wrap items-center gap-2">
-              {extraMembers.map((em, idx) => (
-                <div key={idx} className={`flex items-center gap-2 border ${borderClasses} px-3 py-1.5 text-xs font-bold rounded-full ${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} animate-in zoom-in-90`}>
-                  {em.member.name}
-                  <button onClick={() => removeExtraMember(idx)} className="text-gray-300 hover:text-red-500"><X size={12} /></button>
-                </div>
-              ))}
-              <button onClick={() => setIsAddingExtra(!isAddingExtra)} className={`w-9 h-9 rounded-full border ${borderClasses} border-dashed flex items-center justify-center transition-all ${isAddingExtra ? buttonActiveClasses + ' rotate-45' : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}>
-                <Plus size={18} />
-              </button>
-            </div>
-            {isAddingExtra && (
-              <div className={`mt-4 p-5 border ${borderClasses} border-dashed rounded-8 space-y-4 animate-in slide-in-from-top-4 ${theme === 'dark' ? 'bg-zinc-900/30' : 'bg-white'}`}>
-                <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-1">
-                  {kpopGroups.map(group => (
-                    <button key={`eg-${group.id}`} onClick={() => setTempExtraGroup(group)} className={`p-2 text-[10px] font-bold border ${borderClasses} transition-all ${tempExtraGroup?.id === group.id ? buttonActiveClasses : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}>
-                      {group.name}
-                    </button>
-                  ))}
-                </div>
-                {tempExtraGroup && (
-                  <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-8 gap-1 animate-in slide-in-from-top-2">
-                    {tempExtraGroup.members.map(member => (
-                      <button key={`em-${member.id}`} onClick={() => addExtraMember(member)} className={`p-3 text-xs border ${borderClasses} transition-all font-medium ${theme === 'dark' ? 'bg-zinc-800' : 'bg-white'} ${buttonHoverClasses}`}>
-                        {member.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6">
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <span className={`w-8 h-8 rounded-full border ${borderClasses} flex items-center justify-center text-xs font-bold`}>03</span>
-              <h2 className="text-sm font-bold uppercase tracking-widest">{language === 'kr' ? '주제 및 소재' : 'THEME & CONCEPT'}</h2>
-            </div>
-            <textarea placeholder="Write your story concept..." className={`w-full h-32 border ${borderClasses} rounded-8 p-4 text-sm focus:outline-none placeholder:text-gray-300 bg-transparent`} value={themeInput} onChange={(e) => setThemeInput(e.target.value)} />
-          </div>
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <span className={`w-8 h-8 rounded-full border ${borderClasses} flex items-center justify-center text-xs font-bold`}>04</span>
-              <h2 className="text-sm font-bold uppercase tracking-widest">{language === 'kr' ? '연재 분량' : 'LENGTH'}</h2>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {EPISODE_OPTIONS.map(opt => (
-                <button key={opt} onClick={() => setEpisodeLimit(opt)} className={`py-3 text-xs font-bold border ${borderClasses} rounded-8 transition-all ${episodeLimit === opt ? buttonActiveClasses : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}>
-                  {opt} {language === 'kr' ? '회 분량' : 'EPISODES'}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <button onClick={handleStartStory} disabled={!leftMember || (!isNafes && !rightMember) || !themeInput || loading} className={`w-full py-5 border ${borderClasses} ${buttonActiveClasses} font-black text-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-3 rounded-8`}>
-          {loading ? <Loader2 className="animate-spin" /> : null}
-          {language === 'kr' ? '연재 시작하기' : 'START WRITING'}
-        </button>
-      </section>
-    </div>
-  );
-
   return (
     <div className={`min-h-screen relative flex flex-col transition-colors duration-300 ${themeClasses}`}>
+      {/* Floating Button */}
+      {view === AppState.WRITING ? (
+        <button onClick={scrollToTop} className={`fixed bottom-24 right-6 w-12 h-12 rounded-full border ${borderClasses} ${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} flex items-center justify-center z-[110] shadow-lg group hover:scale-110 transition-all`}>
+          <ArrowUp size={20} />
+        </button>
+      ) : (
+        <a href="https://spin-spin.com/jonnagal" target="_blank" rel="noopener noreferrer" className={`fixed bottom-24 right-6 w-12 h-12 rounded-full border ${borderClasses} ${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} flex items-center justify-center z-[110] shadow-lg group hover:scale-110 transition-all`}>
+          <MessageSquare size={17} />
+        </a>
+      )}
+
       <nav className={`fixed bottom-8 left-1/2 -translate-x-1/2 bg-white/95 border ${borderClasses} ${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} px-8 py-3 rounded-full flex items-center gap-12 z-[100] shadow-xl`}>
         <button onClick={() => setView(AppState.SETUP)} className={`flex flex-col items-center transition-all ${view === AppState.SETUP ? 'opacity-100 font-black' : 'opacity-30 hover:opacity-60'}`}>
           <span className="text-[10px] uppercase tracking-[0.2em]">Home</span>
@@ -513,6 +566,10 @@ const App: React.FC = () => {
         {view === AppState.WRITING && renderWriting()} 
         {view === AppState.LIBRARY && renderLibrary()}
       </main>
+
+      <footer className="w-full max-w-4xl mx-auto px-6 py-12 text-center text-[8px] text-gray-400 leading-relaxed border-t border-zinc-100 dark:border-zinc-900 mb-20">
+        <p>본 콘텐츠는 AI에 의해 생성된 픽션이며 실존 인물 및 단체와는 아무런 관련이 없습니다.<br />모든 디지털 리터러시 책임은 사용자에게 있으며, 실존 인물에 대한 부적절한 활용은 금지됩니다.</p>
+      </footer>
     </div>
   );
 };
