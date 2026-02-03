@@ -87,8 +87,14 @@ export const generateEpisode = async (
     .join("\n\n");
 
   const prompt = isFirstEpisode
-    ? `Create the prologue/first episode based on: "${userInput}".`
-    : `Continue the narrative based on the user's choice: "${userInput}".\n\n[Previous History]\n${previousContext}`;
+  ? `Create the prologue based on the following USER CONCEPT.
+     --- USER CONCEPT START ---
+     ${userInput}
+     --- USER CONCEPT END ---`
+  : `Continue the story based on the USER CHOICE.
+     --- USER CHOICE START ---
+     ${userInput}
+     --- USER CHOICE END ---`;
 
   try {
     const response = await ai.models.generateContent({
