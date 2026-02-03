@@ -1,16 +1,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { Story, Episode } from "../types";
-import { supabase } from '../src/lib/supabase'; // Supabase 클라이언트 임포트
+import { Story, Episode } from "@/types";
+import { supabase } from "@/src/lib/supabase";
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const ai = new GoogleGenAI({ apiKey: API_KEY || "" });
 
 /**
- * RAG: 사용자의 입력과 관련된 추가 지식을 검색합니다.
+ * RAG: 멤버별 상세 지식 및 고유 에피소드를 검색합니다.
  */
-const fetchMemberKnowledge = async (memberNames: string[], query: string) => {
+const fetchMemberKnowledge = async (memberNames: string[]) => {
   try {
-    // 1. member_id 조회
     const { data: members } = await supabase
       .from('idol_members')
       .select('id')
@@ -18,14 +17,10 @@ const fetchMemberKnowledge = async (memberNames: string[], query: string) => {
     
     if (!members || members.length === 0) return "";
 
-    const memberIds = members.map(m => m.id);
-
-    // 2. 관련 지식 검색 (단순 텍스트 검색 또는 Embedding 기반 검색)
-    // 여기서는 간단하게 관련 멤버의 지식 리스트를 가져오는 방식을 예시로 듭니다.
     const { data: knowledge } = await supabase
       .from('member_knowledge')
       .select('content')
-      .in('member_id', memberIds)
+      .in('member_id', members.map(m => m.id))
       .limit(5);
 
     return knowledge?.map(k => k.content).join("\n") || "";
@@ -42,59 +37,67 @@ export const generateEpisode = async (
 ): Promise<{ content: string; suggestions: string[]; storyTitle?: string }> => {
   const isFirstEpisode = currentEpisodeNum === 1;
 
-  // 1. DB에서 동적으로 프롬프트 및 설정 가져오기
+  // 1. DB에서 가이드라인 가져오기
   const { data: config } = await supabase
     .from('app_config')
     .select('config_value')
     .eq('config_key', 'writing_guidelines')
     .single();
 
-  const baseGuidelines = config?.config_value || "기존의 하드코딩된 가이드라인 내용...";
+  // 2. DB 실패 시 사용할 실제 가이드라인 전문 (백업)
+  const fallbackGuidelines = `
+    You are 'PIKFIC', the world's most sophisticated K-Pop fanfiction AI.
+    
+    [WRITING RULES]
+    1. EXTENSIVE LENGTH: You must write a very long episode. Aim for approximately 2000-2500 Korean characters. 
+    2. SHOW, DON'T TELL: 인물의 성격을 직접적으로 설명하지 마세요. "침착한 성격이다"라고 쓰는 대신, 장면과 행동으로 묘사하십시오.
+    3. STYLE: Use everyday, warm language. Maintain a comfortable tone, meticulously describing the background (temperature, scent, arrangement of objects) to maximize immersion.
+    4. EMOTION: Focus on the "butterflies" and the subtext between characters. Richly depict internal monologues and moments that exude "loveliness."
+    5. ORGANIC PERSONA: 인물 고증 데이터는 캐릭터의 행동 속에 자연스럽게 녹여내야 합니다. 정보의 나열은 엄격히 금지하며, 팬들이 보기에 실제 인물처럼 느껴지도록 생동감을 부여하세요.
+    6. RELATIONSHIP & ADDRESS: 대화 상대가 분명하다면 호칭을 생략하고 실제 대화처럼 구성하세요. 서열 고증을 철저히 하되, 모르면 이름만 부르는 평어체를 사용하십시오.
+    7. NARRATIVE CONTINUITY: 이전 챕터의 모든 설정과 감정선을 절대적인 사실로 취급하고 모순되지 않게 작성하세요.
+    8. NEXT STEPS: At the very end, provide exactly 3 diverse plot suggestions for the next chapter.
+  `;
 
-  // 2. RAG 데이터 가져오기 (고증 정확도 향상)
-  const ragContext = await fetchMemberKnowledge([story.leftMember, story.rightMember], userInput);
+  const baseGuidelines = config?.config_value || fallbackGuidelines;
+
+  // 3. RAG 데이터 및 인물 컨텍스트 준비
+  const ragKnowledge = await fetchMemberKnowledge([story.leftMember, story.rightMember]);
   
   const characterContext = story.isNafes 
-    ? `The character '${story.rightMember}' is a self-insert representation of the user (나페스).`
+    ? `The character '${story.rightMember}' is a self-insert representation of the user (나페스). The story must focus exclusively on the interaction between '${story.leftMember}' and '${story.rightMember}'.`
     : `The main relationship is between ${story.leftMember} and ${story.rightMember}.`;
 
   const systemInstruction = `
     ${baseGuidelines}
     
     [CHARACTER DEEP DATA]
-    ${story.leftMember}: ${story.leftMemberContext || 'N/A'}
-    ${story.rightMember}: ${story.rightMemberContext || 'N/A'}
+    - ${story.leftMember}: ${story.leftMemberContext || 'No data'}
+    - ${story.rightMember}: ${story.rightMemberContext || 'No data'}
     
-    [ADDITIONAL KNOWLEDGE (RAG)]
-    ${ragContext}
-    
-    [CURRENT CONTEXT]
-    - Characters: ${story.leftMember} & ${story.rightMember}
-    - Setting: ${story.groupName}
-    - Theme/Genre: ${story.theme}
+    [ATTENTION]
+    위 인물 데이터를 소설에 그대로 나열하지 마세요. 이 정보를 '연기'하듯 행동과 말투에 녹여내어 문학적인 소설을 작성하십시오.
+
+    [STORY PROFILE]
+    - Involved Groups: ${story.groupName}
+    - Genre/Theme: ${story.theme}
     - Language: ${story.language === 'en' ? 'English' : 'Korean'}
-    - Progress: ${currentEpisodeNum} / ${story.totalEpisodes}
+    - Episode: ${currentEpisodeNum} / ${story.totalEpisodes}
+    ${ragKnowledge ? `\n[ADDITIONAL KNOWLEDGE]\n${ragKnowledge}` : ""}
+    ${isFirstEpisode ? "\n[SPECIAL] generate a poetic title '[Member X Member] Title'." : ""}
   `;
 
-  // 이전 에피소드 요약 (토큰 절약을 위해 2000자로 제한하는 로직 유지)
+  // 이전 컨텍스트 요약 유지
   const previousContext = story.episodes
-    .map((ep) => {
-      const content = ep.content.length > 2000 
-        ? `...${ep.content.substring(ep.content.length - 2000)}` 
-        : ep.content;
-      return `[Chapter ${ep.episodeNumber}]\n${content}`;
-    })
+    .map((ep) => `[Chapter ${ep.episodeNumber}]\n${ep.content.substring(Math.max(0, ep.content.length - 1500))}`)
     .join("\n\n");
 
   const prompt = isFirstEpisode
-  ? `Create the prologue based on the following USER CONCEPT.
-     --- USER CONCEPT START ---
-     ${userInput}
-     --- USER CONCEPT END ---`
-  : `Continue the story based on the USER CHOICE.
-     --- USER CHOICE START ---
-     ${userInput}
-     --- USER CHOICE END ---`;
+    ? `Create the first episode based on: "${userInput}".`
+    : `Continuing the narrative from:
+      ${previousContext}
+      
+      User chose: "${userInput}". Write the ${currentEpisodeNum}th episode.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -104,7 +107,7 @@ export const generateEpisode = async (
         systemInstruction,
         responseMimeType: "application/json",
         maxOutputTokens: 8192,
-        temperature: 0.8,
+        temperature: 0.85, // 문학적 창의성을 위해 약간 높임
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -119,10 +122,9 @@ export const generateEpisode = async (
 
     const text = response.text;
     if (!text) throw new Error("Empty response");
-    
     return JSON.parse(text);
   } catch (error) {
-    console.error("Gemini Error:", error);
+    console.error("Gemini Service Error:", error);
     throw new Error("Failed to generate content.");
   }
 };
