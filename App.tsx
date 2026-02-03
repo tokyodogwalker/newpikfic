@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AppState, Story, IdolGroup, IdolMember, Theme } from './types';
-import { EPISODE_OPTIONS } from './constants'; // EPISODE_OPTIONS는 유지
+import { EPISODE_OPTIONS } from './constants'; 
 import { generateEpisode } from './services/geminiService';
-import { supabase } from './lib/supabase'; // Supabase 클라이언트 임포트
+import { supabase } from './src/lib/supabase'; 
 import { ChevronLeft, ChevronRight, Save, Trash2, Loader2, X, Plus, MessageSquare, User, ArrowUp, Globe } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -11,21 +11,18 @@ const App: React.FC = () => {
   const [currentStory, setCurrentStory] = useState<Story | null>(null);
   const [loading, setLoading] = useState(false);
   const [theme, setTheme] = useState<Theme>('light');
-  const [language, setLanguage] = useState<'kr' | 'en'>('kr'); // 글로벌 서비스 대비 다국어 상태
+  const [language, setLanguage] = useState<'kr' | 'en'>('kr'); 
   
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollAnchorRef = useRef<HTMLDivElement>(null);
 
-  // DB에서 불러온 그룹 데이터 상태
   const [kpopGroups, setKpopGroups] = useState<IdolGroup[]>([]);
 
-  // Setup state
   const [leftGroup, setLeftGroup] = useState<IdolGroup | null>(null);
   const [leftMember, setLeftMember] = useState<IdolMember | null>(null);
   const [rightGroup, setRightGroup] = useState<IdolGroup | null>(null);
   const [rightMember, setRightMember] = useState<IdolMember | null>(null);
   
-  // Nafes state
   const [isNafes, setIsNafes] = useState(false);
   const [nafesName, setNafesName] = useState('여주');
 
@@ -35,11 +32,9 @@ const App: React.FC = () => {
 
   const [themeInput, setThemeInput] = useState('');
   const [episodeLimit, setEpisodeLimit] = useState(10);
-
-  // Writing state
   const [customInput, setCustomInput] = useState('');
 
-  // 1. DB 데이터 페칭 (아이돌 정보 및 그룹)
+  // 1. DB 데이터 페칭 및 타입 오류 해결
   useEffect(() => {
     const fetchIdolData = async () => {
       const { data, error } = await supabase
@@ -48,6 +43,7 @@ const App: React.FC = () => {
           id,
           group_name,
           group_name_en,
+          group_context,
           idol_members (
             id,
             name_kr,
@@ -63,15 +59,19 @@ const App: React.FC = () => {
       }
 
       if (data) {
-        // DB 데이터를 기존 IdolGroup/Member 인터페이스 형식으로 변환
         const formatted: IdolGroup[] = data.map((g: any) => ({
           id: g.id,
-          name: language === 'kr' ? g.group_name : g.group_name_en,
+          group_name: g.group_name,       // 필수 속성 추가
+          group_name_en: g.group_name_en, // 필수 속성 추가
+          group_context: g.group_context,
+          name: language === 'kr' ? g.group_name : g.group_name_en, // UI용 name 유지
           members: g.idol_members.map((m: any) => ({
             id: m.id,
             name: language === 'kr' ? m.name_kr : m.name_en,
-            image: '', // 필요시 추가
-            personality: `[Traits] ${m.personal_traits} [Background] ${m.personal_background}` // 고증 데이터 주입
+            name_kr: m.name_kr,
+            name_en: m.name_en,
+            image: '', 
+            personality: `[Traits] ${m.personal_traits} [Background] ${m.personal_background}`
           }))
         }));
         setKpopGroups(formatted);
@@ -79,12 +79,11 @@ const App: React.FC = () => {
     };
 
     fetchIdolData();
-  }, [language]); // 언어 변경 시 데이터 다시 로드
+  }, [language]);
 
   useEffect(() => {
     const saved = localStorage.getItem('pikfic_stories');
     if (saved) setStories(JSON.parse(saved));
-    
     const savedTheme = localStorage.getItem('pikfic_theme') as Theme;
     if (savedTheme) setTheme(savedTheme);
   }, []);
@@ -102,6 +101,137 @@ const App: React.FC = () => {
     setStories(updated);
     localStorage.setItem('pikfic_stories', JSON.stringify(updated));
   };
+
+  // ---------------------------------------------------------
+  // UI 렌더링 함수들을 handleStartStory 바깥(App 스코프)으로 이동
+  // ---------------------------------------------------------
+
+  const renderWriting = () => {
+    if (!currentStory) return null;
+    const lastEp = currentStory.episodes[currentStory.episodes.length - 1];
+
+    return (
+      <div className={`max-w-4xl mx-auto p-6 flex flex-col h-[calc(100vh-2rem)] animate-in fade-in relative ${themeClasses}`}>
+        <div className="flex-1 relative overflow-hidden">
+          <div ref={contentRef} className="h-full overflow-y-auto scrollbar-hide space-y-12 py-8 pb-32">
+            <div className={`flex items-center justify-between border-b ${borderClasses} pb-6 mb-8`}>
+              <div className="flex items-center gap-4">
+                <button onClick={() => setView(AppState.SETUP)} className={`p-2 border ${borderClasses} rounded-8 ${buttonHoverClasses}`}>
+                  <ChevronLeft size={20} />
+                </button>
+                <div className="overflow-hidden">
+                  <h2 className="font-black text-xl uppercase italic tracking-tighter truncate max-w-[200px] md:max-w-md">
+                    {currentStory.title}
+                  </h2>
+                  <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                    {currentStory.episodes.length} / {currentStory.totalEpisodes} EPISODES
+                  </p>
+                </div>
+              </div>
+              <button onClick={saveToLibrary} className={`${buttonActiveClasses} px-5 py-2 rounded-8 text-[10px] font-black transition-all uppercase`}>
+                SAVE
+              </button>
+            </div>
+
+            <div className="max-w-2xl mx-auto space-y-24">
+              {currentStory.episodes.map((ep, idx) => (
+                <div key={idx} ref={idx === currentStory.episodes.length - 1 ? scrollAnchorRef : null} className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                  <div className="text-center py-2">
+                    <span className={`text-[10px] border ${borderClasses} px-4 py-1.5 font-bold uppercase tracking-widest rounded-full bg-inherit transition-all shadow-sm`}>
+                      Chapter {ep.episodeNumber}
+                    </span>
+                  </div>
+                  <div className={`serif-content text-l whitespace-pre-wrap leading-relaxed ${theme === 'dark' ? 'text-zinc-100' : 'text-zinc-900'}`}>
+                    {ep.content}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {loading && (
+              <div className="max-w-2xl mx-auto animate-in fade-in pt-24">
+                <div className="flex flex-col items-center justify-center space-y-4 py-8">
+                  <Loader2 className={`animate-spin ${theme === 'dark' ? 'text-zinc-100' : 'text-black'}`} size={32} />
+                  <p className="text-sm font-bold uppercase tracking-widest text-gray-500">Writing next chapter...</p>
+                </div>
+              </div>
+            )}
+
+            {!currentStory.isCompleted && !loading && (
+              <div className={`max-w-2xl mx-auto pt-32 border-t ${borderClasses} space-y-12`}>
+                <div className="space-y-6">
+                  <h4 className="text-center text-[10px] font-black uppercase tracking-widest text-gray-400">Next Selection</h4>
+                  <div className="space-y-2">
+                    {lastEp.suggestions.map((s, idx) => (
+                      <button key={idx} onClick={() => handleNextEpisode(s)} className={`w-full p-5 border ${borderClasses} text-sm text-left transition-all rounded-8 font-medium flex items-center gap-4 group ${theme === 'dark' ? 'hover:bg-zinc-100 hover:text-zinc-950' : 'hover:bg-black hover:text-white'}`}>
+                        <span className={`text-[10px] font-black w-6 h-6 rounded-full border ${borderClasses} flex items-center justify-center group-hover:border-current`}>{idx + 1}</span>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="relative">
+                  <input type="text" value={customInput} onChange={(e) => setCustomInput(e.target.value)} placeholder="또는 당신만의 서사를 직접 입력하세요..." className={`w-full bg-transparent border ${borderClasses} rounded-8 py-5 pl-6 pr-16 text-sm focus:outline-none placeholder:text-gray-300`} />
+                  <button disabled={!customInput} onClick={() => handleNextEpisode(customInput)} className={`absolute right-2 top-2 bottom-2 px-4 ${buttonActiveClasses} rounded-[6px] transition-all disabled:opacity-20`}>
+                    <ChevronRight size={20} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {currentStory.isCompleted && (
+              <div className={`text-center py-20 border-t ${borderClasses} animate-in zoom-in-95`}>
+                <h3 className="text-4xl font-black tracking-tighter italic mb-4">FIN.</h3>
+                <button onClick={() => setView(AppState.LIBRARY)} className={`border ${borderClasses} px-8 py-4 text-xs font-bold uppercase transition-all rounded-8 ${buttonHoverClasses}`}>
+                  Go to Library
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderLibrary = () => (
+    <div className={`max-w-4xl mx-auto p-6 space-y-12 animate-in fade-in pb-24 ${themeClasses}`}>
+      <div className={`flex items-center justify-between border-b ${borderClasses} pb-8`}>
+        <h1 className="text-4xl font-black tracking-tighter uppercase">Library</h1>
+        <button onClick={() => setView(AppState.SETUP)} className={`flex items-center gap-1 border ${borderClasses} px-4 py-2 rounded-8 text-[10px] font-black uppercase transition-all ${buttonHoverClasses}`}>
+          새 글 쓰기
+        </button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {stories.length === 0 ? (
+          <div className="col-span-full text-center py-32 border border-dashed border-gray-300 dark:border-zinc-700 rounded-8">
+            <p className="text-gray-400 text-sm font-bold uppercase tracking-widest">No archives found</p>
+          </div>
+        ) : (
+          stories.map(story => (
+            <div key={story.id} className={`border ${borderClasses} rounded-8 p-6 transition-all flex flex-col justify-between ${theme === 'dark' ? 'bg-zinc-900/50' : 'bg-white'}`}>
+              <div>
+                <h3 className="text-lg font-black uppercase tracking-tight truncate w-full mb-1">{story.title}</h3>
+                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-4">{story.leftMember} x {story.rightMember}</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => { setCurrentStory(story); setView(AppState.WRITING); }} className={`flex-1 ${buttonActiveClasses} py-3 rounded-[6px] text-[10px] font-black uppercase transition-all hover:opacity-80`}>
+                  Read Archive
+                </button>
+                <button onClick={() => deleteFromLibrary(story.id)} className={`p-3 border ${borderClasses} rounded-[6px] hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-500 transition-all`}>
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  // ---------------------------------------------------------
+  // 비즈니스 로직 함수들
+  // ---------------------------------------------------------
 
   const handleStartStory = async () => {
     const rightCharName = isNafes ? nafesName : rightMember?.name;
@@ -126,7 +256,6 @@ const App: React.FC = () => {
         episodes: [],
         isCompleted: false,
         createdAt: Date.now(),
-        // 중요: DB에서 가져온 고증 데이터를 story 객체에 포함시켜 geminiService로 전달
         leftMemberContext: leftMember.personality,
         rightMemberContext: !isNafes ? rightMember?.personality : undefined
       };
@@ -146,7 +275,7 @@ const App: React.FC = () => {
       setCurrentStory(newStory);
       setView(AppState.WRITING);
     } catch (e) {
-      alert("집필 중 오류가 발생했습니다. 토큰 한도 초과이거나 DB 설정 문제일 수 있습니다.");
+      alert("집필 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
@@ -154,29 +283,22 @@ const App: React.FC = () => {
 
   const handleNextEpisode = async (choice: string) => {
     if (!currentStory) return;
-
     setLoading(true);
     try {
       const nextEpNum = currentStory.episodes.length + 1;
       const nextEp = await generateEpisode(currentStory, choice, nextEpNum);
-      
       const updatedStory = {
         ...currentStory,
-        episodes: [
-          ...currentStory.episodes,
-          {
-            episodeNumber: nextEpNum,
-            content: nextEp.content,
-            suggestions: nextEp.suggestions,
-            userChoice: choice,
-          }
-        ],
+        episodes: [...currentStory.episodes, {
+          episodeNumber: nextEpNum,
+          content: nextEp.content,
+          suggestions: nextEp.suggestions,
+          userChoice: choice,
+        }],
         isCompleted: nextEpNum >= currentStory.totalEpisodes
       };
-
       setCurrentStory(updatedStory);
       setCustomInput('');
-      
       setTimeout(() => {
         scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
@@ -187,7 +309,6 @@ const App: React.FC = () => {
     }
   };
 
-  // 나머지 기능(saveToLibrary, deleteFromLibrary 등)은 기존과 동일하게 유지
   const saveToLibrary = () => {
     if (!currentStory) return;
     const currentStories = JSON.parse(localStorage.getItem('pikfic_stories') || '[]');
@@ -210,8 +331,7 @@ const App: React.FC = () => {
   };
 
   const addExtraMember = (member: IdolMember) => {
-    const maxExtraLimit = 8; // 예시 리밋
-    if (tempExtraGroup && extraMembers.length < maxExtraLimit) {
+    if (tempExtraGroup && extraMembers.length < 8) {
       setExtraMembers([...extraMembers, { group: tempExtraGroup, member }]);
       setIsAddingExtra(false);
       setTempExtraGroup(null);
@@ -231,9 +351,6 @@ const App: React.FC = () => {
   const buttonActiveClasses = theme === 'dark' ? 'bg-zinc-100 text-zinc-950' : 'bg-black text-white';
   const buttonHoverClasses = theme === 'dark' ? 'hover:bg-zinc-900' : 'hover:bg-gray-100';
 
-  // UI 렌더링 함수들 (Setup, Writing, Library)
-  // ... (기존과 거의 동일하되, KPOP_GROUPS 대신 kpopGroups 상태 사용)
-
   const renderSetup = () => (
     <div className={`max-w-4xl mx-auto p-6 space-y-12 animate-in fade-in duration-700 pb-24 ${themeClasses}`}>
       <header className="text-center pt-8">
@@ -245,7 +362,6 @@ const App: React.FC = () => {
       </header>
 
       <section className={`space-y-10 border-t ${borderClasses} pt-10`}>
-        {/* Step 01: 왼쪽 멤버 */}
         <div className="space-y-6">
           <div className="flex items-center gap-2">
             <span className={`w-8 h-8 rounded-full border ${borderClasses} flex items-center justify-center text-xs font-bold`}>01</span>
@@ -277,40 +393,26 @@ const App: React.FC = () => {
           )}
         </div>
 
-        {/* Step 02: 오른쪽 멤버 */}
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className={`w-8 h-8 rounded-full border ${borderClasses} flex items-center justify-center text-xs font-bold`}>02</span>
               <h2 className="text-sm font-bold uppercase tracking-widest">{language === 'kr' ? '오른쪽 멤버' : 'RIGHT MEMBER'}👉</h2>
             </div>
-            <button 
-              onClick={() => setIsNafes(!isNafes)}
-              className={`flex items-center gap-2 px-4 py-2 border ${borderClasses} rounded-full text-[10px] font-bold transition-all ${isNafes ? buttonActiveClasses : buttonHoverClasses}`}
-            >
+            <button onClick={() => setIsNafes(!isNafes)} className={`flex items-center gap-2 px-4 py-2 border ${borderClasses} rounded-full text-[10px] font-bold transition-all ${isNafes ? buttonActiveClasses : buttonHoverClasses}`}>
               {isNafes ? 'NAFES ON' : 'NAFES OFF'}
             </button>
           </div>
           
           {isNafes ? (
             <div className="animate-in slide-in-from-top-2 space-y-4">
-              <input 
-                type="text" 
-                value={nafesName}
-                onChange={(e) => setNafesName(e.target.value)}
-                placeholder="Name (e.g., Y/N)"
-                className={`w-full p-4 border ${borderClasses} rounded-8 text-sm focus:outline-none bg-transparent`}
-              />
+              <input type="text" value={nafesName} onChange={(e) => setNafesName(e.target.value)} placeholder="Name (e.g., Y/N)" className={`w-full p-4 border ${borderClasses} rounded-8 text-sm focus:outline-none bg-transparent`} />
             </div>
           ) : (
             <>
               <div className="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-1">
                 {kpopGroups.map(group => (
-                  <button
-                    key={`rg-${group.id}`}
-                    onClick={() => { setRightGroup(group); setRightMember(null); }}
-                    className={`p-2 text-[10px] font-bold border ${borderClasses} transition-all ${rightGroup?.id === group.id ? buttonActiveClasses : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}
-                  >
+                  <button key={`rg-${group.id}`} onClick={() => { setRightGroup(group); setRightMember(null); }} className={`p-2 text-[10px] font-bold border ${borderClasses} transition-all ${rightGroup?.id === group.id ? buttonActiveClasses : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}>
                     {group.name}
                   </button>
                 ))}
@@ -318,11 +420,7 @@ const App: React.FC = () => {
               {rightGroup && (
                 <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-8 gap-1 animate-in slide-in-from-top-2">
                   {rightGroup.members.map(member => (
-                    <button
-                      key={`rm-${member.id}`}
-                      onClick={() => setRightMember(member)}
-                      className={`p-3 text-xs border ${borderClasses} transition-all ${rightMember?.id === member.id ? `${buttonActiveClasses} font-bold` : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}
-                    >
+                    <button key={`rm-${member.id}`} onClick={() => setRightMember(member)} className={`p-3 text-xs border ${borderClasses} transition-all ${rightMember?.id === member.id ? `${buttonActiveClasses} font-bold` : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}>
                       {member.name}
                     </button>
                   ))}
@@ -331,7 +429,6 @@ const App: React.FC = () => {
             </>
           )}
 
-          {/* 추가 멤버 (Extra Members) 로직 유지 */}
           <div className="pt-2">
             <div className="flex flex-wrap items-center gap-2">
               {extraMembers.map((em, idx) => (
@@ -340,10 +437,7 @@ const App: React.FC = () => {
                   <button onClick={() => removeExtraMember(idx)} className="text-gray-300 hover:text-red-500"><X size={12} /></button>
                 </div>
               ))}
-              <button 
-                onClick={() => setIsAddingExtra(!isAddingExtra)}
-                className={`w-9 h-9 rounded-full border ${borderClasses} border-dashed flex items-center justify-center transition-all ${isAddingExtra ? buttonActiveClasses + ' rotate-45' : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}
-              >
+              <button onClick={() => setIsAddingExtra(!isAddingExtra)} className={`w-9 h-9 rounded-full border ${borderClasses} border-dashed flex items-center justify-center transition-all ${isAddingExtra ? buttonActiveClasses + ' rotate-45' : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}>
                 <Plus size={18} />
               </button>
             </div>
@@ -370,19 +464,13 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Step 03 & 04 로직 동일 */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-6">
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <span className={`w-8 h-8 rounded-full border ${borderClasses} flex items-center justify-center text-xs font-bold`}>03</span>
               <h2 className="text-sm font-bold uppercase tracking-widest">{language === 'kr' ? '주제 및 소재' : 'THEME & CONCEPT'}</h2>
             </div>
-            <textarea
-              placeholder="Write your story concept..."
-              className={`w-full h-32 border ${borderClasses} rounded-8 p-4 text-sm focus:outline-none placeholder:text-gray-300 bg-transparent`}
-              value={themeInput}
-              onChange={(e) => setThemeInput(e.target.value)}
-            />
+            <textarea placeholder="Write your story concept..." className={`w-full h-32 border ${borderClasses} rounded-8 p-4 text-sm focus:outline-none placeholder:text-gray-300 bg-transparent`} value={themeInput} onChange={(e) => setThemeInput(e.target.value)} />
           </div>
           <div className="space-y-4">
             <div className="flex items-center gap-2">
@@ -391,22 +479,14 @@ const App: React.FC = () => {
             </div>
             <div className="grid grid-cols-2 gap-2">
               {EPISODE_OPTIONS.map(opt => (
-                <button
-                  key={opt}
-                  onClick={() => setEpisodeLimit(opt)}
-                  className={`py-3 text-xs font-bold border ${borderClasses} rounded-8 transition-all ${episodeLimit === opt ? buttonActiveClasses : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}
-                >
+                <button key={opt} onClick={() => setEpisodeLimit(opt)} className={`py-3 text-xs font-bold border ${borderClasses} rounded-8 transition-all ${episodeLimit === opt ? buttonActiveClasses : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}>
                   {opt} {language === 'kr' ? '회 분량' : 'EPISODES'}
                 </button>
               ))}
             </div>
           </div>
         </div>
-        <button
-          onClick={handleStartStory}
-          disabled={!leftMember || (!isNafes && !rightMember) || !themeInput || loading}
-          className={`w-full py-5 border ${borderClasses} ${buttonActiveClasses} font-black text-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-3 rounded-8`}
-        >
+        <button onClick={handleStartStory} disabled={!leftMember || (!isNafes && !rightMember) || !themeInput || loading} className={`w-full py-5 border ${borderClasses} ${buttonActiveClasses} font-black text-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-3 rounded-8`}>
           {loading ? <Loader2 className="animate-spin" /> : null}
           {language === 'kr' ? '연재 시작하기' : 'START WRITING'}
         </button>
@@ -414,9 +494,6 @@ const App: React.FC = () => {
     </div>
   );
 
-  // renderWriting, renderLibrary는 기존 코드와 동일하여 생략 (구조 유지)
-  // ...
-  
   return (
     <div className={`min-h-screen relative flex flex-col transition-colors duration-300 ${themeClasses}`}>
       <nav className={`fixed bottom-8 left-1/2 -translate-x-1/2 bg-white/95 border ${borderClasses} ${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} px-8 py-3 rounded-full flex items-center gap-12 z-[100] shadow-xl`}>
@@ -436,8 +513,6 @@ const App: React.FC = () => {
         {view === AppState.WRITING && renderWriting()} 
         {view === AppState.LIBRARY && renderLibrary()}
       </main>
-      
-      {/* Footer 및 기타 UI 요소 유지 */}
     </div>
   );
 };
