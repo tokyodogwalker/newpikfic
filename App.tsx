@@ -334,11 +334,24 @@ const App: React.FC = () => {
               <h2 className="text-sm font-bold uppercase tracking-widest">{language === 'kr' ? '연재 분량' : 'LENGTH'}</h2>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              {EPISODE_OPTIONS.map(opt => (
-                <button key={opt} onClick={() => setEpisodeLimit(opt)} className={`py-3 text-xs font-bold border ${borderClasses} rounded-8 transition-all ${episodeLimit === opt ? buttonActiveClasses : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}>
-                  {opt} {language === 'kr' ? '회 분량' : 'EPISODES'}
-                </button>
-              ))}
+              {EPISODE_OPTIONS.map(opt => {
+                //!!! 중요중요 !!! 여기부터 연재분량 수정하는 곳임
+                const isLocked = opt > 20;
+
+                return (
+                  <button
+                    key={opt}
+                    disabled={isLocked} // 클릭 방지
+                    onClick={() => !isLocked && setEpisodeLimit(opt)}
+                    className={`py-3 text-xs font-bold border ${borderClasses} rounded-8 transition-all 
+                      ${isLocked ? 'opacity-40 cursor-not-allowed bg-gray-100' : // 잠금 스타일
+                        episodeLimit === opt ? buttonActiveClasses : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}
+                  >
+                    {opt} {language === 'kr' ? '회 분량' : 'EPISODES'}
+                    {isLocked && " 🔒"} {/* 잠금 표시 추가 */}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
