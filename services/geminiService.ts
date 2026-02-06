@@ -8,6 +8,7 @@ const ai = new GoogleGenAI({ apiKey: API_KEY || "" });
 /**
  * RAG: 멤버별 상세 지식 및 고유 에피소드를 검색합니다.
  */
+/*
 const fetchMemberKnowledge = async (memberNames: string[]) => {
   try {
     const { data: members } = await supabase
@@ -29,6 +30,8 @@ const fetchMemberKnowledge = async (memberNames: string[]) => {
     return "";
   }
 };
+*/
+
 
 export const generateEpisode = async (
   story: Story,
@@ -46,10 +49,10 @@ export const generateEpisode = async (
 
   // 2. DB 실패 시 사용할 실제 가이드라인 전문 (백업)
   const fallbackGuidelines = `
-    You are 'PIKFIC', the world's most sophisticated K-Pop fanfiction AI.
+    You are PIKFIC, a highly creative and popular K-pop fanfiction writer.
     
     [WRITING RULES]
-    1. EXTENSIVE LENGTH: You must write a very long episode. Aim for approximately 2000-2500 Korean characters. 
+    1. EXTENSIVE LENGTH: You must write a very long episode. Aim for approximately 2500-3000 Korean characters. 
     2. SHOW, DON'T TELL: 인물의 성격을 직접적으로 설명하지 마세요. "침착한 성격이다"라고 쓰는 대신, 장면과 행동으로 묘사하십시오.
     3. STYLE: Use everyday, warm language. Maintain a comfortable tone, meticulously describing the background (temperature, scent, arrangement of objects) to maximize immersion.
     4. EMOTION: Focus on the "butterflies" and the subtext between characters. Richly depict internal monologues and moments that exude "loveliness."
@@ -62,8 +65,10 @@ export const generateEpisode = async (
   const baseGuidelines = config?.config_value || fallbackGuidelines;
 
   // 3. RAG 데이터 및 인물 컨텍스트 준비
+  /*
   const ragKnowledge = await fetchMemberKnowledge([story.leftMember, story.rightMember]);
-  
+ */
+
   const characterContext = story.isNafes 
     ? `The character '${story.rightMember}' is a self-insert representation of the user (나페스). The story must focus exclusively on the interaction between '${story.leftMember}' and '${story.rightMember}'.`
     : `The main relationship is between ${story.leftMember} and ${story.rightMember}.`;
@@ -71,7 +76,8 @@ export const generateEpisode = async (
   const systemInstruction = `
     ${baseGuidelines}
     
-    [CHARACTER DEEP DATA]
+    [CHARACTER HIDDEN BACKGROUND - REFERENCE ONLY]
+    Below is the character's hidden background information. Refer to this data subtly and metaphorically only when it enhances the atmosphere. The creative flow and narrative engagement are far more important than strictly reflecting these details.
     - ${story.leftMember}: ${story.leftMemberContext || 'No data'}
     - ${story.rightMember}: ${story.rightMemberContext || 'No data'}
     
@@ -83,13 +89,12 @@ export const generateEpisode = async (
     - Genre/Theme: ${story.theme}
     - Language: ${story.language === 'en' ? 'English' : 'Korean'}
     - Episode: ${currentEpisodeNum} / ${story.totalEpisodes}
-    ${ragKnowledge ? `\n[ADDITIONAL KNOWLEDGE]\n${ragKnowledge}` : ""}
     ${isFirstEpisode ? "\n[SPECIAL] generate a poetic title '[Member X Member] Title'." : ""}
   `;
 
   // 이전 컨텍스트 요약 유지
   const previousContext = story.episodes
-    .map((ep) => `[Chapter ${ep.episodeNumber}]\n${ep.content.substring(Math.max(0, ep.content.length - 1500))}`)
+    .map((ep) => `[Chapter ${ep.episodeNumber}]\n${ep.content.substring(Math.max(0, ep.content.length - 2000))}`)
     .join("\n\n");
 
   const prompt = isFirstEpisode
