@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AppState, Story, IdolGroup, IdolMember, Theme } from './types';
-import { EPISODE_OPTIONS } from './constants'; 
 import { generateEpisode } from './services/geminiService';
 import { supabase } from './src/lib/supabase'; 
-import { mapDbToIdolGroup } from './src/utils/mapper'; // 유틸리티 함수 임포트
+import { mapDbToIdolGroup } from './src/utils/mapper'; 
 import { ChevronLeft, ChevronRight, Save, Trash2, Loader2, X, Plus, MessageSquare, User, ArrowUp, Globe } from 'lucide-react';
+
+const EPISODE_OPTIONS = [10, 20, 50, 100];
 
 const App: React.FC = () => {
   const [view, setView] = useState<AppState>(AppState.SETUP);
@@ -37,7 +38,6 @@ const App: React.FC = () => {
 
   const maxExtraLimit = 8;
 
-  // 1. DB 데이터 페칭 (유틸리티 함수 사용)
   useEffect(() => {
     const fetchIdolData = async () => {
       const { data, error } = await supabase
@@ -62,7 +62,6 @@ const App: React.FC = () => {
       }
 
       if (data) {
-        // 유틸리티 함수를 사용하여 데이터 변환 로직 중복 제거
         const formatted = mapDbToIdolGroup(data, language);
         setKpopGroups(formatted);
       }
@@ -92,7 +91,6 @@ const App: React.FC = () => {
     localStorage.setItem('pikfic_stories', JSON.stringify(updated));
   };
 
-  // 2. 비즈니스 로직 함수들
   const handleStartStory = async () => {
     const rightCharName = isNafes ? nafesName : rightMember?.name;
     if (!leftMember || !rightCharName || !themeInput) return;
@@ -170,7 +168,6 @@ const App: React.FC = () => {
     }
   };
 
-  // 라이브러리 관련 함수 생략 (기존 유지)
   const saveToLibrary = () => {
     if (!currentStory) return;
     const currentStories = JSON.parse(localStorage.getItem('pikfic_stories') || '[]');
@@ -192,7 +189,6 @@ const App: React.FC = () => {
     }
   };
 
-  // 멤버 추가 관련 함수
   const addExtraMember = (member: IdolMember) => {
     if (tempExtraGroup && extraMembers.length < maxExtraLimit) {
       setExtraMembers([...extraMembers, { group: tempExtraGroup, member }]);
@@ -214,7 +210,20 @@ const App: React.FC = () => {
   const buttonActiveClasses = theme === 'dark' ? 'bg-zinc-100 text-zinc-950' : 'bg-black text-white';
   const buttonHoverClasses = theme === 'dark' ? 'hover:bg-zinc-900' : 'hover:bg-gray-100';
 
-  // 3. UI 렌더링 함수들
+  // 광고 영역 컴포넌트 복구
+  const AdPlaceholder = () => (
+    <div className={`w-full h-40 border ${borderClasses} rounded-8 flex items-center justify-center ${theme === 'dark' ? 'bg-zinc-900' : 'bg-gray-50'} mb-8 overflow-hidden relative group`}>
+      <div className="text-center p-4">
+        <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">Sponsored</p>
+        <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">PIKFIC Premium을 경험해보세요</p>
+        <p className="text-xs text-gray-400 mt-2 italic">광고 노출 중... 잠시만 기다려주세요</p>
+      </div>
+      <div className="absolute top-2 right-2 cursor-pointer text-gray-300">
+        <X size={14} />
+      </div>
+    </div>
+  );
+
   const renderSetup = () => (
     <div className={`max-w-4xl mx-auto p-6 space-y-12 animate-in fade-in duration-700 pb-24 relative ${themeClasses}`}>
       <div className="absolute top-4 right-4 md:top-8 md:right-8 z-50">
@@ -237,7 +246,6 @@ const App: React.FC = () => {
       </header>
 
       <section className={`space-y-10 border-t ${borderClasses} pt-10`}>
-        {/* 기존 Setup 단계들 (01~04) 유지 */}
         <div className="space-y-6">
           <div className="flex items-center gap-2">
             <span className={`w-8 h-8 rounded-full border ${borderClasses} flex items-center justify-center text-xs font-bold`}>01</span>
@@ -300,7 +308,6 @@ const App: React.FC = () => {
             </>
           )}
 
-          {/* 등장인물 추가 */}
           <div className="pt-2">
             <div className="flex flex-wrap items-center gap-2 min-h-[40px]">
               {extraMembers.map((em, idx) => (
@@ -335,20 +342,18 @@ const App: React.FC = () => {
             </div>
             <div className="grid grid-cols-2 gap-2">
               {EPISODE_OPTIONS.map(opt => {
-                //!!! 중요중요 !!! 여기부터 연재분량버튼 수정하는 곳임
                 const isLocked = opt > 20;
-
                 return (
                   <button
                     key={opt}
-                    disabled={isLocked} // 클릭 방지
+                    disabled={isLocked}
                     onClick={() => !isLocked && setEpisodeLimit(opt)}
                     className={`py-3 text-xs font-bold border ${borderClasses} rounded-8 transition-all 
-                      ${isLocked ? 'opacity-40 cursor-not-allowed bg-gray-100' : // 잠금 스타일
+                      ${isLocked ? 'opacity-40 cursor-not-allowed bg-gray-100' : 
                         episodeLimit === opt ? buttonActiveClasses : `${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} ${buttonHoverClasses}`}`}
                   >
                     {opt} {language === 'kr' ? '회 분량' : 'EPISODES'}
-                    {isLocked && " 🔒"} {/* 잠금 표시 추가 */}
+                    {isLocked && " 🔒"}
                   </button>
                 );
               })}
@@ -370,7 +375,6 @@ const App: React.FC = () => {
 
     return (
       <div className={`max-w-4xl mx-auto p-6 flex flex-col h-[calc(100vh-2rem)] animate-in fade-in relative ${themeClasses}`}>
-        {/* 기존 Writing UI 유지 */}
         <div className="flex-1 relative overflow-hidden">
           <div ref={contentRef} className="h-full overflow-y-auto scrollbar-hide space-y-12 py-8 pb-32">
             <div className={`flex items-center justify-between border-b ${borderClasses} pb-6 mb-8`}>
@@ -390,6 +394,7 @@ const App: React.FC = () => {
                   <div className="text-center py-2">
                     <span className={`text-[10px] border ${borderClasses} px-4 py-1.5 font-bold uppercase tracking-widest rounded-full`}>Chapter {ep.episodeNumber}</span>
                   </div>
+                  {/* 줄바꿈을 위해 <br> 태그를 치환 처리함 */}
                   <div className="serif-content text-l whitespace-pre-wrap leading-relaxed">{ep.content.replace(/<br\s*\/?>/gi, '\n')}</div>
                 </div>
               ))}
@@ -397,6 +402,7 @@ const App: React.FC = () => {
 
             {loading && (
               <div className="max-w-2xl mx-auto py-8 flex flex-col items-center justify-center space-y-4">
+                <AdPlaceholder /> {/* 로딩 중 광고 노출 */}
                 <Loader2 className="animate-spin" size={32} />
                 <p className="text-sm font-bold uppercase tracking-widest text-gray-500">Writing next chapter...</p>
               </div>
@@ -404,6 +410,18 @@ const App: React.FC = () => {
 
             {!currentStory.isCompleted && !loading && (
               <div className={`max-w-2xl mx-auto pt-32 border-t ${borderClasses} space-y-12`}>
+                
+                {/* 광고 영역 및 하단 저장 버튼 복구 */}
+                <AdPlaceholder />
+                <div className="flex justify-center">
+                  <button 
+                    onClick={saveToLibrary}
+                    className={`border ${borderClasses} px-5 py-3 rounded-8 text-xs font-black uppercase transition-all flex items-center gap-2 ${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'}`}
+                  >
+                    내 서재에 저장
+                  </button>
+                </div>
+
                 <div className="space-y-6">
                   <h4 className="text-center text-[10px] font-black uppercase tracking-widest text-gray-400">Next Selection</h4>
                   <div className="space-y-2">
@@ -428,7 +446,6 @@ const App: React.FC = () => {
 
   const renderLibrary = () => (
     <div className={`max-w-4xl mx-auto p-6 space-y-12 animate-in fade-in pb-24 ${themeClasses}`}>
-      {/* 기존 Library UI 유지 */}
       <div className={`flex items-center justify-between border-b ${borderClasses} pb-8`}>
         <h1 className="text-4xl font-black tracking-tighter uppercase">Library</h1>
         <button onClick={() => setView(AppState.SETUP)} className={`flex items-center gap-1 border ${borderClasses} px-4 py-2 rounded-8 text-[10px] font-black uppercase transition-all ${buttonHoverClasses}`}>새 글 쓰기</button>
@@ -450,7 +467,6 @@ const App: React.FC = () => {
 
   return (
     <div className={`min-h-screen relative flex flex-col transition-colors duration-300 ${themeClasses}`}>
-      {/* Floating Buttons & Navigation 유지 */}
       {view === AppState.WRITING ? (
         <button onClick={scrollToTop} className={`fixed bottom-24 right-6 w-12 h-12 rounded-full border ${borderClasses} ${theme === 'dark' ? 'bg-zinc-900' : 'bg-white'} flex items-center justify-center z-[110] shadow-lg hover:scale-110 transition-all`}><ArrowUp size={20} /></button>
       ) : (
