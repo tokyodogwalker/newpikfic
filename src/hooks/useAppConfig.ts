@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Theme } from '../types';
+import { Theme } from '@/types';
 
 export const useAppConfig = () => {
   const [theme, setTheme] = useState<Theme>('light');

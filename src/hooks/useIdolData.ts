@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { IdolGroup } from '../types';
-import { supabase } from '../src/lib/supabase';
-import { mapDbToIdolGroup } from '../src/utils/mapper';
+import { IdolGroup } from '@/types';
+import { supabase } from '@/src/lib/supabase';
+import { mapDbToIdolGroup } from '@/src/utils/mapper';
 
 export const useIdolData = (language: 'kr' | 'en') => {
   const [kpopGroups, setKpopGroups] = useState<IdolGroup[]>([]);

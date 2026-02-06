@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
-import { Story, AppState } from '../../types';
+import { Story, AppState } from '@/types';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
-import { generateEpisode } from '../../services/geminiService';
+import { generateEpisode } from '@/services/geminiService';
 import { AdPlaceholder } from '../Layout/AdPlaceholder';
 
 interface Props {
