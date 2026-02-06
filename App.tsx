@@ -210,7 +210,6 @@ const App: React.FC = () => {
   const buttonActiveClasses = theme === 'dark' ? 'bg-zinc-100 text-zinc-950' : 'bg-black text-white';
   const buttonHoverClasses = theme === 'dark' ? 'hover:bg-zinc-900' : 'hover:bg-gray-100';
 
-  // 광고 영역 컴포넌트 복구
   const AdPlaceholder = () => (
     <div className={`w-full h-40 border ${borderClasses} rounded-8 flex items-center justify-center ${theme === 'dark' ? 'bg-zinc-900' : 'bg-gray-50'} mb-8 overflow-hidden relative group`}>
       <div className="text-center p-4">
@@ -394,7 +393,6 @@ const App: React.FC = () => {
                   <div className="text-center py-2">
                     <span className={`text-[10px] border ${borderClasses} px-4 py-1.5 font-bold uppercase tracking-widest rounded-full`}>Chapter {ep.episodeNumber}</span>
                   </div>
-                  {/* 줄바꿈을 위해 <br> 태그를 치환 처리함 */}
                   <div className="serif-content text-l whitespace-pre-wrap leading-relaxed">{ep.content.replace(/<br\s*\/?>/gi, '\n')}</div>
                 </div>
               ))}
@@ -402,7 +400,7 @@ const App: React.FC = () => {
 
             {loading && (
               <div className="max-w-2xl mx-auto py-8 flex flex-col items-center justify-center space-y-4">
-                <AdPlaceholder /> {/* 로딩 중 광고 노출 */}
+                <AdPlaceholder />
                 <Loader2 className="animate-spin" size={32} />
                 <p className="text-sm font-bold uppercase tracking-widest text-gray-500">Writing next chapter...</p>
               </div>
@@ -410,8 +408,6 @@ const App: React.FC = () => {
 
             {!currentStory.isCompleted && !loading && (
               <div className={`max-w-2xl mx-auto pt-32 border-t ${borderClasses} space-y-12`}>
-                
-                {/* 광고 영역 및 하단 저장 버튼 복구 */}
                 <AdPlaceholder />
                 <div className="flex justify-center">
                   <button 
