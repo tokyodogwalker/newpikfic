@@ -335,7 +335,7 @@ const App: React.FC = () => {
             </div>
             <div className="grid grid-cols-2 gap-2">
               {EPISODE_OPTIONS.map(opt => {
-                //!!! 중요중요 !!! 여기부터 연재분량 수정하는 곳임
+                //!!! 중요중요 !!! 여기부터 연재분량버튼 수정하는 곳임
                 const isLocked = opt > 20;
 
                 return (
@@ -390,7 +390,7 @@ const App: React.FC = () => {
                   <div className="text-center py-2">
                     <span className={`text-[10px] border ${borderClasses} px-4 py-1.5 font-bold uppercase tracking-widest rounded-full`}>Chapter {ep.episodeNumber}</span>
                   </div>
-                  <div className="serif-content text-l whitespace-pre-wrap leading-relaxed">{ep.content}</div>
+                  <div className="serif-content text-l whitespace-pre-wrap leading-relaxed">{ep.content.replace(/<br\s*\/?>/gi, '\n')}</div>
                 </div>
               ))}
             </div>
