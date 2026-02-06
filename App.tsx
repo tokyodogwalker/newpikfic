@@ -356,7 +356,7 @@ const App: React.FC = () => {
           </div>
         </div>
         <button onClick={handleStartStory} disabled={!leftMember || (!isNafes && !rightMember) || !themeInput || loading} className={`w-full py-5 border ${borderClasses} ${buttonActiveClasses} font-black text-xl transition-all disabled:opacity-30 rounded-8`}>
-          {loading ? <Loader2 className="animate-spin" /> : null}
+          {loading ? <Loader2 className="animate-spin flex items-center justify-center gap-3"/> : null}
           {language === 'kr' ? '연재 시작하기' : 'START WRITING'}
         </button>
       </section>

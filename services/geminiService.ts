@@ -76,19 +76,19 @@ export const generateEpisode = async (
   const systemInstruction = `
     ${baseGuidelines}
     
-    [CHARACTER HIDDEN BACKGROUND - REFERENCE ONLY]
-    Below is the character's hidden background information. Refer to this data subtly and metaphorically only when it enhances the atmosphere. The creative flow and narrative engagement are far more important than strictly reflecting these details.
+    [CHARACTER PROFILE GUIDELINES - REFERENCE ONLY]
+    - BACKGROUND: Use this as the foundational context for the character's life and history. It should inform their current situation and overall 'vibe' in the story.
+    - TRAITS: Refer only to **strictly necessary** elements that are essential to the specific scene. Do not feel obligated to include every trait. Use them as a very subtle reference only when they naturally enhance the narrative atmosphere.
+    
+    [CHARACTER DATA]
     - ${story.leftMember}: ${story.leftMemberContext || 'No data'}
     - ${story.rightMember}: ${story.rightMemberContext || 'No data'}
-    
-    [ATTENTION]
-    위 인물 데이터를 소설에 그대로 나열하지 마세요. 이 정보를 '연기'하듯 행동과 말투에 녹여내어 문학적인 소설을 작성하십시오.
 
     [STORY PROFILE]
     - Involved Groups: ${story.groupName}
     - Genre/Theme: ${story.theme}
     - Language: ${story.language === 'en' ? 'English' : 'Korean'}
-    - Episode: ${currentEpisodeNum} / ${story.totalEpisodes}
+    - Current Episode: ${currentEpisodeNum} / ${story.totalEpisodes}
     ${isFirstEpisode ? "\n[SPECIAL] generate a poetic title '[Member X Member] Title'." : ""}
   `;
 
